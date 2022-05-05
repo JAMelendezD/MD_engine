@@ -7,7 +7,7 @@ import os
 import time
 import argparse
 
-def generate_velocities(T,mass):
+def generate_velocities(T,mass,dim):
 	kB = 1.38e-23
 	amu = 1.660539*1e-27
 	mass = mass*amu
@@ -20,11 +20,17 @@ def generate_velocities(T,mass):
     
 	theta = np.arccos(np.random.uniform(-1,1,1))
 	phi = np.random.uniform(0,2*np.pi,1)
-    
+
 	vx = speed * np.sin(theta) * np.cos(phi)
 	vy = speed * np.sin(theta) * np.sin(phi)
 	vz = speed * np.cos(theta)
-	return [vx[0], vy[0], vz[0]]
+
+	if dim == 3:
+		return [vx[0], vy[0], vz[0]]
+	elif dim == 2:
+		return [vx[0], vy[0], 0]
+	else:
+		return [vx[0], 0, 0]
 
 def read_box(pdb,T,ff):
 	positions = []
@@ -36,6 +42,9 @@ def read_box(pdb,T,ff):
 		N = 0
 		for line in f:
 			data = tl.splitm(line)
+			if data[0] == 'CRYST1':
+				data = line.split()
+				box = np.array(data[1:4],dtype=float)
 			if data[0] == 'ATOM':
 				if data[2] not in known:
 					raise KeyError('Atom in structure file not found in the itp file')
@@ -43,10 +52,15 @@ def read_box(pdb,T,ff):
 				atoms.append(data[2])
 				mass = ff[data[2]][2]
 				masses.append(mass)
-				velocities.append(generate_velocities(T,mass))
-			if data[0] == 'CRYST1':
-				data = line.split()
-				box = np.array(data[1:4],dtype=float)
+
+				if box[1] == 0.0:
+					dim = 1
+				elif box[2] == 0.0:
+					dim = 2
+				else:
+					dim = 3
+
+				velocities.append(generate_velocities(T,mass,dim))
 	N = len(positions)
 	return N, atoms, np.array(positions,dtype=float), np.array(velocities,dtype=float), box, np.array(masses,dtype=float)
 

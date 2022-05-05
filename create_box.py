@@ -42,10 +42,10 @@ def generate_coordinates(elements:dict,dim:int,box) -> None:
 	return names, positions
 
 def main():
-	elements = {'Ar': 200,'Kr': 150,'Rn': 62,'He': 100}
-	dim = 3
+	elements = {'Ar': 200,'He':200}
+	dim = 2
 	#box = np.array([28.98,28.98,28.98])
-	box = np.array([274.95,274.95,274.95])
+	box = np.array([274.95,274.95,0.0])
 	names, positions = generate_coordinates(elements,dim,box)
 
 	write_pdb('test_liq.pdb','w',box,names,positions,0)
