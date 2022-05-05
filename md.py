@@ -1,9 +1,10 @@
 import numpy as np
-from numba import jit
+from numba import jit,prange
 import tools as tl
 from scipy.interpolate import interp1d as interp
 from scipy.special import erf
 import os
+import time
 import argparse
 
 def generate_velocities(T,mass):
@@ -48,7 +49,7 @@ def read_box(pdb,T,ff):
 				box = np.array(data[1:4],dtype=float)
 	N = len(positions)
 	return N, atoms, np.array(positions,dtype=float), np.array(velocities,dtype=float), box, np.array(masses,dtype=float)
-	
+
 @jit(nopython=True)
 def lj(r,rvec,C6,C12):
 	sr6 = 1.0/r**6
@@ -58,14 +59,14 @@ def lj(r,rvec,C6,C12):
 	force = (12*C12*sr14-6*C6*sr8)*rvec
 	return pot,force
 
-@jit(nopython=True)
+@jit(nopython=True,fastmath=True,parallel = True)
 def compute_forces(poss,box,C6s,C12s,masses,cutoff):
 	N = len(poss)
 	amu = 1.660539*1e-27
 	energies = np.zeros(N)
 	forces = np.zeros((N,3))
 	accs = np.zeros((N,3))
-	for i in range(N):
+	for i in prange(N):
 		energy = 0 
 		force = np.zeros(3)
 		vectors = np.remainder(poss[i] - poss + box[0]/2.0, box[0]) - box[0]/2.0
@@ -73,10 +74,10 @@ def compute_forces(poss,box,C6s,C12s,masses,cutoff):
 			if i != j:
 				rvec = vectors[j]
 				r = np.sqrt(np.dot(rvec,rvec))
-				if r <= cutoff:
-					e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
-					energy += e
-					force += f
+				#if r <= cutoff:
+				e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
+				energy += e
+				force += f
 		energies[i] = energy
 		forces[i] = force
 		accs[i] = force/(masses[i]*1000)
@@ -137,7 +138,7 @@ def log(step,energies,vels,forces,dt):
 	print(f'F_mean: \t {f_mean:>8.3f} kJ/(mol A)')
 
 def main():
-	mdp = tl.read_mdp(args.f)
+	mdp = tl.read_mdp(args.mdp)
 	ff = tl.read_itp(mdp['itp'])
 
 	# Set simulation parameters
@@ -153,7 +154,7 @@ def main():
 
 	print(mdp)
 
-	N, atoms, poss, vels, box,masses = read_box(args.c,T,ff)
+	N, atoms, poss, vels, box,masses = read_box(args.pdb,T,ff)
 
 	print(f'Generated initial velocities for temperature {T}')
 
@@ -174,6 +175,7 @@ def main():
 	log(0,energies,vels,forces,dt)
 
 	# Main loop
+	t1 = time.time()
 	for step in range(1,nsteps+1):
 		new_pos = update_positions(N,box,poss,vels,old_accs,dt,dt3)
 		energies,forces,accs = compute_forces(new_pos,box,C6s,C12s,masses,vdw_cut)
@@ -182,11 +184,16 @@ def main():
 		if step%save == 0:
 			tl.write_pdb(out,'a',box,atoms,new_pos,step)
 			log(step,energies,vels,forces,dt)
+	delta = (time.time()-t1)/86400
+	simulated_time = (nsteps*dt)*1e-6
+	speed = simulated_time/delta
+	print('#####################################')
+	print(f'Performace {speed:5.2f} ns/day')
 
 if __name__ == '__main__':
 
 	parser = argparse.ArgumentParser(description='Dynamics')
-	parser.add_argument('-f',required = True,type=str,help='mdp file')
-	parser.add_argument('-c',required=True, type=str,help='pdb file')
+	parser.add_argument('pdb', type=str,help='pdb file')
+	parser.add_argument('mdp',type=str,help='mdp file')
 	args = parser.parse_args()
 	main()
