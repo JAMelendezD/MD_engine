@@ -234,7 +234,6 @@ def main():
 	print(f'Performace {speed:5.2f} ns/day')
 
 if __name__ == '__main__':
-
 	parser = argparse.ArgumentParser(description='Dynamics')
 	parser.add_argument('pdb', type=str,help='pdb file')
 	parser.add_argument('mdp',type=str,help='mdp file')

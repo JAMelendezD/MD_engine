@@ -1,6 +1,6 @@
-nsteps		20000
-dt		5
-T		87.9
+nsteps		10000
+dt		2
+T		89.15
 itp		noble.itp
 vdw-cut	9.0
 ensemble	1

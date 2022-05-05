@@ -2,20 +2,20 @@ from tools import write_pdb
 import random
 import numpy as np
 
-def generate_coordinates(elements:dict,dim:int,box) -> None:
-
-	if not isinstance(box,np.ndarray):
-		raise TypeError('Box must be a numpy array')
-
-	if dim not in [1,2,3]:
-		raise AttributeError('Only available dimensions are 1,2,3')
+def generate_coordinates(elements,box,mode):
 
 	N = 0
 	for value in elements.values():
 		N+=value
 
-	names = []
 	positions = np.zeros((N,3))
+
+	if box[1] == 0.0:
+		dim = 1
+	elif box[2] == 0.0:
+		dim = 2
+	else:
+		dim = 3
 
 	for i in range(N):
 		if dim == 1:
@@ -35,21 +35,28 @@ def generate_coordinates(elements:dict,dim:int,box) -> None:
 			positions[i][1] = ((i//f)%f+0.5)*box[1]/f
 			positions[i][2] = (int(i/f2)+0.5)*box[2]/f
 
-	for item in elements.items():
-		for _ in range(item[1]):
-			names.append(item[0])
-	random.shuffle(names)
+	if mode == 0:
+		names = []
+		for item in elements.items():
+			for _ in range(item[1]):
+				names.append(item[0])
+		random.shuffle(names)
+	elif mode == 1:
+		lists = []
+		for item in elements.items():
+			lists.append(item[1]*[item[0]])
+		names = [item for sublist in zip(*lists) for item in sublist]
 	return names, positions
 
 def main():
-	elements = {'Ar':448,'Na': 32,'Cl':32}
-	dim = 3
-	#box = np.array([28.98,28.98,28.98])
-	box = np.array([40.98,40.98,40.98])
-	#box = np.array([274.95,274.95,0.0])
-	names, positions = generate_coordinates(elements,dim,box)
-
-	write_pdb('test_salt.pdb','w',box,names,positions,0)
-
+	mode = 0
+	elements = {'Ar':448,'Na':32,'Cl':32}
+	box = np.array([28.98,28.98,28.98])
+	#box = np.array([40.98,40.98,40.98])
+	#box = np.array([274.95,0.0,0.0])
+	names, positions = generate_coordinates(elements,box,mode)
+	f = open('test_gas.pdb','w')
+	write_pdb(f,box,names,positions,0)
+	f.close()
 if __name__ == '__main__':
 	main()

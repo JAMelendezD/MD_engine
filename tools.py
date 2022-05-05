@@ -47,7 +47,7 @@ def nonblank(f):
 		if line:
 			yield line
 
-def read_itp(name:str) -> dict:
+def read_itp(name):
 	'''
 	Function to read the force field
 	'''
@@ -60,7 +60,7 @@ def read_itp(name:str) -> dict:
 	return dic
 
 
-def read_mdp(name:str) -> dict:
+def read_mdp(name):
 	'''
 	Function to initialize the simulation options and to modify them based in the mdp file
 	'''
