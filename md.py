@@ -74,10 +74,10 @@ def compute_forces(poss,box,C6s,C12s,masses,cutoff):
 			if i != j:
 				rvec = vectors[j]
 				r = np.sqrt(np.dot(rvec,rvec))
-				#if r <= cutoff:
-				e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
-				energy += e
-				force += f
+				if r <= cutoff:
+					e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
+					energy += e
+					force += f
 		energies[i] = energy
 		forces[i] = force
 		accs[i] = force/(masses[i]*1000)
