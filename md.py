@@ -62,10 +62,10 @@ def lj(r,rvec,C6,C12):
 @jit(nopython=True,fastmath=True,parallel = True)
 def compute_forces(poss,box,C6s,C12s,masses,cutoff):
 	N = len(poss)
-	amu = 1.660539*1e-27
 	energies = np.zeros(N)
 	forces = np.zeros((N,3))
 	accs = np.zeros((N,3))
+	interactions = 0
 	for i in prange(N):
 		energy = 0 
 		force = np.zeros(3)
@@ -78,10 +78,11 @@ def compute_forces(poss,box,C6s,C12s,masses,cutoff):
 					e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
 					energy += e
 					force += f
+					interactions+=1
 		energies[i] = energy
 		forces[i] = force
-		accs[i] = force/(masses[i]*1000)
-	return energies, forces, accs
+		accs[i] = (force/masses[i])*1e-4 # (kj*mol)/(g*mol*A) -> (kj)/(g*A) -> 1e6*(m^2*g)/(g*A*s^2) -> 1e26*A/s^2 ->  1e-4(A/fs^2)
+	return energies, forces, accs, interactions
 
 @jit(nopython=True)
 def update_velocities(N,vels,old_accs,accs,dt2):
@@ -126,16 +127,23 @@ def backup(fname,counter):
 		counter+=1
 		return backup(fname,counter)
 
-def log(step,energies,vels,forces,dt):
-	potential = np.sum(energies)/2
-	vrms = np.sqrt(np.mean(np.einsum("ij, ij -> i", vels, vels)))
+def log(step,energies,vels,forces,masses,inters,dt):
+	kB = 8.3145e-3
+	potential = np.sum(energies)
+	vel2 = np.einsum("ij, ij -> i", vels, vels)
+	vrms = np.sqrt(np.mean(vel2))
 	f_mean = np.mean(np.einsum("ij, ij -> i", forces, forces))
+	kin = 0.5*masses*vel2*1e4  # (g A^2)/(mol fs^2) -> 1e10(g*m^2)/(mol*s^2) -> 1e7(J)/(mol)  -> 1e4(kJ)/(mol)
+	temper = (2.0*np.mean(kin))/(3.0*kB)
 	print('#####################################')
 	print(f'Step: \t\t {step:>8d}')
-	print(f'Time: \t\t {(dt*step)/1000:>8.3f} ps')
-	print(f'Potential: \t {potential:>8.2f} kJ/mol')
+	print(f'Time: \t\t {(dt*step)/1000:>8.3f} ps') # convert fs to ps
+	print(f'Potential: \t {potential/2:>8.2f} kJ/mol') # double counting
+	print(f'Interactions: \t {inters//2:>8d}') # double counting
+	print(f'Kinetic: \t {np.sum(kin):>8.3f} kJ/mol')
 	print(f'V_rms: \t\t {vrms*100:>8.3f} nm/ps') # convert A/fs to nm/ps
 	print(f'F_mean: \t {f_mean:>8.3f} kJ/(mol A)')
+	print(f'Temperature: \t {temper:>8.3f} K')
 
 def main():
 	mdp = tl.read_mdp(args.mdp)
@@ -170,20 +178,20 @@ def main():
 		os.system(f"touch {out}")
 
 	# Compute initial forces and save initial coordinates with the stats
-	energies,forces,old_accs = compute_forces(poss,box,C6s,C12s,masses,vdw_cut)
+	energies,forces,old_accs, inters = compute_forces(poss,box,C6s,C12s,masses,vdw_cut)
 	tl.write_pdb(out,'a',box,atoms,poss,0)
-	log(0,energies,vels,forces,dt)
+	log(0,energies,vels,forces,masses,inters,dt)
 
 	# Main loop
 	t1 = time.time()
 	for step in range(1,nsteps+1):
 		new_pos = update_positions(N,box,poss,vels,old_accs,dt,dt3)
-		energies,forces,accs = compute_forces(new_pos,box,C6s,C12s,masses,vdw_cut)
+		energies,forces,accs, inters = compute_forces(new_pos,box,C6s,C12s,masses,vdw_cut)
 		vels = update_velocities(N,vels,old_accs,accs,dt2)
 		old_accs = accs
 		if step%save == 0:
 			tl.write_pdb(out,'a',box,atoms,new_pos,step)
-			log(step,energies,vels,forces,dt)
+			log(step,energies,vels,forces,masses,inters,dt)
 	delta = (time.time()-t1)/86400
 	simulated_time = (nsteps*dt)*1e-6
 	speed = simulated_time/delta

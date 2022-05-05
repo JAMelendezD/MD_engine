@@ -1,4 +1,6 @@
 # Force field information
 
-atom		Ar	3.4010	0.9786	39.948
-atom		Kr	3.9350	1.8117	83.798
+atom        He	2.9350  0.5117  14.798
+atom        Ar  3.4010  0.9786	39.948
+atom        Kr	3.9350  1.8117  83.798
+atom        Ur  4.9350  2.5117 583.798
