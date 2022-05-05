@@ -1,4 +1,4 @@
-nsteps		20000
+nsteps		2000
 dt		5
 T		298
 itp		noble.itp
