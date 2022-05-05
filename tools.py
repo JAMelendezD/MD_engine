@@ -1,6 +1,7 @@
 import numpy as np
 
-def write_pdb(name:str,mode:str,box,atoms:list[str],positions,step:int) -> None:
+
+def write_pdb(f,box,atoms,positions,step):
 	'''
 	Function to write coordinates as a pdb to a file
 	'''
@@ -20,32 +21,21 @@ def write_pdb(name:str,mode:str,box,atoms:list[str],positions,step:int) -> None:
 					1.00,
 					'AELE',
 					'']
-	possible_modes = ['w','a']
 
-	if not isinstance(box,np.ndarray):
-		raise TypeError('Box must be a numpy array')
-
-	if not isinstance(positions,np.ndarray):
-		raise TypeError('atoms must be a numpy array')
-
-	if mode not in possible_modes:
-		raise AttributeError('mode not available only modes are w and a')
-
-	with open(name,mode) as f:
-		f.write('CRYST1 {:8.3f}{:8.3f}{:8.3f}{:8.2f}{:8.2f}{:8.2f}\n'.format(*box,90,90,90))
-		f.write('MODEL {:>8d}\n'.format(step))
-		for i in range(len(atoms)):
-			fixed_format[1] = i+1
-			fixed_format[2] = atoms[i]
-			fixed_format[4] = atoms[i]
-			fixed_format[6] = i+1
-			fixed_format[8] = positions[i][0]
-			fixed_format[9] = positions[i][1]
-			fixed_format[10] = positions[i][2]
-			fixed_format[13] = atoms[i]
-			f.write(pdb_format.format(*fixed_format))
-		f.write('TER\n')
-		f.write('ENDMDL\n')
+	f.write('CRYST1 {:8.3f}{:8.3f}{:8.3f}{:8.2f}{:8.2f}{:8.2f}\n'.format(*box,90,90,90))
+	f.write('MODEL {:>8d}\n'.format(step))
+	for i in range(len(atoms)):
+		fixed_format[1] = i+1
+		fixed_format[2] = atoms[i]
+		fixed_format[4] = atoms[i]
+		fixed_format[6] = i+1
+		fixed_format[8] = positions[i][0]
+		fixed_format[9] = positions[i][1]
+		fixed_format[10] = positions[i][2]
+		fixed_format[13] = atoms[i]
+		f.write(pdb_format.format(*fixed_format))
+	f.write('TER\n')
+	f.write('ENDMDL\n')
 	return
 
 def nonblank(f):

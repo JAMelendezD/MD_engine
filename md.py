@@ -211,7 +211,9 @@ def main():
 
 	# Compute initial forces and save initial coordinates with the stats
 	energies,forces,old_accs, lj_inters, ele_inters = compute_forces(poss,box,C6s,C12s,charges,masses,vdw_cut)
-	tl.write_pdb(out,'a',box,atoms,poss,0)
+	
+	f_traj = open(out,'a')
+	tl.write_pdb(f_traj,box,atoms,poss,0)
 	log(0,energies,vels,forces,masses,lj_inters,ele_inters,dt)
 
 	# Main loop
@@ -222,9 +224,10 @@ def main():
 		vels = update_velocities(N,vels,old_accs,accs,dt2)
 		old_accs = accs
 		if step%save == 0:
-			tl.write_pdb(out,'a',box,atoms,new_pos,step)
+			tl.write_pdb(f_traj,box,atoms,new_pos,step)
 			log(step,energies,vels,forces,masses,lj_inters,ele_inters,dt)
-	delta = (time.time()-t1)/86400
+	f_traj.close()
+	delta = (time.time()-t1)/86400 # convert 
 	simulated_time = (nsteps*dt)*1e-6
 	speed = simulated_time/delta
 	print('#####################################')
