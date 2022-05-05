@@ -73,13 +73,23 @@ def lj(r,rvec,C6,C12):
 	force = (12*C12*sr14-6*C6*sr8)*rvec
 	return pot,force
 
+@jit(nopython=True)
+def coulomb(r,rvec,q):
+	k = 1389.3546
+	sr = 1.0/r
+	sr3 = 1.0/r**3
+	pot = k*q*sr
+	force = (k*q*sr3)*rvec
+	return pot,force
+
 @jit(nopython=True,fastmath=True,parallel = True)
-def compute_forces(poss,box,C6s,C12s,masses,cutoff):
+def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
 	N = len(poss)
 	energies = np.zeros(N)
 	forces = np.zeros((N,3))
 	accs = np.zeros((N,3))
-	interactions = 0
+	lj_inters = 0
+	ele_inters = 0
 	for i in prange(N):
 		energy = 0 
 		force = np.zeros(3)
@@ -92,11 +102,16 @@ def compute_forces(poss,box,C6s,C12s,masses,cutoff):
 					e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
 					energy += e
 					force += f
-					interactions+=1
+					lj_inters+=1
+					if charges[i][j] != 0.0:
+						e,f = coulomb(r,rvec,charges[i][j])
+						energy += e
+						force += f
+						ele_inters+=1
 		energies[i] = energy
 		forces[i] = force
 		accs[i] = (force/masses[i])*1e-4 # (kj*mol)/(g*mol*A) -> (kj)/(g*A) -> 1e6*(m^2*g)/(g*A*s^2) -> 1e26*A/s^2 ->  1e-4(A/fs^2)
-	return energies, forces, accs, interactions
+	return energies, forces, accs, lj_inters, ele_inters
 
 @jit(nopython=True)
 def update_velocities(N,vels,old_accs,accs,dt2):
@@ -118,17 +133,19 @@ def update_positions(N,box,poss,vels,accs,dt,dt3):
 				poss[i][j] = new_pos  
 	return poss
 
-def generate_lj_params(atoms,ff):
+def generate_params(atoms,ff):
 	N = len(atoms)
 	C6s = np.zeros((N,N))
 	C12s = np.zeros((N,N))
+	charges = np.zeros((N,N))
 	for i in range(N):
 		for j in range(N):
 			sig_ij = (ff[atoms[i]][0]+ff[atoms[j]][0])/2
 			eps_ij = np.sqrt(ff[atoms[i]][1]*ff[atoms[j]][1])
 			C6s[i][j] = 4*eps_ij*sig_ij**6
 			C12s[i][j] = 4*eps_ij*sig_ij**12
-	return C6s, C12s
+			charges[i][j] = ff[atoms[i]][3]*ff[atoms[j]][3]
+	return C6s, C12s, charges
 
 def backup(fname,counter):
 	exists = os.path.exists('{}'.format(fname))
@@ -141,7 +158,7 @@ def backup(fname,counter):
 		counter+=1
 		return backup(fname,counter)
 
-def log(step,energies,vels,forces,masses,inters,dt):
+def log(step,energies,vels,forces,masses,lj_inters,ele_inters,dt):
 	kB = 8.3145e-3
 	potential = np.sum(energies)
 	vel2 = np.einsum("ij, ij -> i", vels, vels)
@@ -153,7 +170,8 @@ def log(step,energies,vels,forces,masses,inters,dt):
 	print(f'Step: \t\t {step:>8d}')
 	print(f'Time: \t\t {(dt*step)/1000:>8.3f} ps') # convert fs to ps
 	print(f'Potential: \t {potential/2:>8.2f} kJ/mol') # double counting
-	print(f'Interactions: \t {inters//2:>8d}') # double counting
+	print(f'Inters-LJ: \t {lj_inters//2:>8d}') # double counting
+	print(f'Inters-Coul: \t {ele_inters//2:>8d}') # double counting
 	print(f'Kinetic: \t {np.sum(kin):>8.3f} kJ/mol')
 	print(f'V_rms: \t\t {vrms*100:>8.3f} nm/ps') # convert A/fs to nm/ps
 	print(f'F_mean: \t {f_mean:>8.3f} kJ/(mol A)')
@@ -180,7 +198,7 @@ def main():
 
 	print(f'Generated initial velocities for temperature {T}')
 
-	C6s, C12s = generate_lj_params(atoms,ff)
+	C6s, C12s, charges = generate_params(atoms,ff)
 
 	# Create a backup if traj.pdb exists
 	new_name = backup(out,0)
@@ -192,20 +210,20 @@ def main():
 		os.system(f"touch {out}")
 
 	# Compute initial forces and save initial coordinates with the stats
-	energies,forces,old_accs, inters = compute_forces(poss,box,C6s,C12s,masses,vdw_cut)
+	energies,forces,old_accs, lj_inters, ele_inters = compute_forces(poss,box,C6s,C12s,charges,masses,vdw_cut)
 	tl.write_pdb(out,'a',box,atoms,poss,0)
-	log(0,energies,vels,forces,masses,inters,dt)
+	log(0,energies,vels,forces,masses,lj_inters,ele_inters,dt)
 
 	# Main loop
 	t1 = time.time()
 	for step in range(1,nsteps+1):
 		new_pos = update_positions(N,box,poss,vels,old_accs,dt,dt3)
-		energies,forces,accs, inters = compute_forces(new_pos,box,C6s,C12s,masses,vdw_cut)
+		energies,forces,accs, lj_inters, ele_inters  = compute_forces(new_pos,box,C6s,C12s,charges,masses,vdw_cut)
 		vels = update_velocities(N,vels,old_accs,accs,dt2)
 		old_accs = accs
 		if step%save == 0:
 			tl.write_pdb(out,'a',box,atoms,new_pos,step)
-			log(step,energies,vels,forces,masses,inters,dt)
+			log(step,energies,vels,forces,masses,lj_inters,ele_inters,dt)
 	delta = (time.time()-t1)/86400
 	simulated_time = (nsteps*dt)*1e-6
 	speed = simulated_time/delta

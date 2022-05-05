@@ -42,13 +42,14 @@ def generate_coordinates(elements:dict,dim:int,box) -> None:
 	return names, positions
 
 def main():
-	elements = {'Ar': 200,'He':200}
-	dim = 2
+	elements = {'Ar':448,'Na': 32,'Cl':32}
+	dim = 3
 	#box = np.array([28.98,28.98,28.98])
-	box = np.array([274.95,274.95,0.0])
+	box = np.array([40.98,40.98,40.98])
+	#box = np.array([274.95,274.95,0.0])
 	names, positions = generate_coordinates(elements,dim,box)
 
-	write_pdb('test_liq.pdb','w',box,names,positions,0)
+	write_pdb('test_salt.pdb','w',box,names,positions,0)
 
 if __name__ == '__main__':
 	main()

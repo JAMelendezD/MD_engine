@@ -66,7 +66,7 @@ def read_itp(name:str) -> dict:
 		for line in nonblank(f):
 			data = line.split()
 			if data[0] == 'atom':
-				dic[data[1]] = (float(data[2]),float(data[3]),float(data[4]))
+				dic[data[1]] = (float(data[2]),float(data[3]),float(data[4]),float(data[5]))
 	return dic
 
 
