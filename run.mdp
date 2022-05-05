@@ -1,5 +1,5 @@
-nsteps		250000
-dt		4
+nsteps		20000
+dt		5
 T		298
 itp		noble.itp
 vdw-cut		9.0
