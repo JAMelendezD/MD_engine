@@ -62,9 +62,9 @@ def read_box(pdb,T,ff):
 
 				velocities.append(generate_velocities(T,mass,dim))
 	N = len(positions)
-	return N, atoms, np.array(positions,dtype=float), np.array(velocities,dtype=float), box, np.array(masses,dtype=float)
+	return N, dim, atoms, np.array(positions,dtype=float), np.array(velocities,dtype=float), box, np.array(masses,dtype=float)
 
-@jit(nopython=True)
+@jit(nopython=True,fastmath=True)
 def lj(r,rvec,C6,C12):
 	sr6 = 1.0/r**6
 	sr8 = 1.0/r**8
@@ -73,7 +73,7 @@ def lj(r,rvec,C6,C12):
 	force = (12*C12*sr14-6*C6*sr8)*rvec
 	return pot,force
 
-@jit(nopython=True)
+@jit(nopython=True,fastmath=True)
 def coulomb(r,rvec,q):
 	k = 1389.3546
 	sr = 1.0/r
@@ -82,48 +82,49 @@ def coulomb(r,rvec,q):
 	force = (k*q*sr3)*rvec
 	return pot,force
 
-@jit(nopython=True,fastmath=True,parallel = True)
+@jit(nopython=True,fastmath=True,parallel=True)
 def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
 	N = len(poss)
 	energies = np.zeros(N)
 	forces = np.zeros((N,3))
-	accs = np.zeros((N,3))
 	lj_inters = 0
 	ele_inters = 0
-	for i in prange(N):
+	virial = 0.0
+	for i in prange(N-1):
 		energy = 0 
-		force = np.zeros(3)
 		vectors = np.remainder(poss[i] - poss + box[0]/2.0, box[0]) - box[0]/2.0
-		for j in range(N):
-			if i != j:
-				rvec = vectors[j]
-				r = np.sqrt(np.dot(rvec,rvec))
-				if r <= cutoff:
-					e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
+		for j in prange(i+1,N):
+			rvec = vectors[j]
+			r = np.sqrt(np.dot(rvec,rvec))
+			if r <= cutoff:
+				e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
+				energy += e
+				forces[i] +=  f
+				forces[j] -=  f
+				virial += np.dot(rvec,f)
+				lj_inters += 1
+				if charges[i][j] != 0.0:
+					e,f = coulomb(r,rvec,charges[i][j])
 					energy += e
-					force += f
-					lj_inters+=1
-					if charges[i][j] != 0.0:
-						e,f = coulomb(r,rvec,charges[i][j])
-						energy += e
-						force += f
-						ele_inters+=1
+					forces[i] += f
+					forces[j] -= f
+					virial += np.dot(rvec,f)
+					ele_inters += 1
 		energies[i] = energy
-		forces[i] = force
-		accs[i] = (force/masses[i])*1e-4 # (kj*mol)/(g*mol*A) -> (kj)/(g*A) -> 1e6*(m^2*g)/(g*A*s^2) -> 1e26*A/s^2 ->  1e-4(A/fs^2)
-	return energies, forces, accs, lj_inters, ele_inters
+	accs = (forces.T/masses).T*1e-4 # (kj*mol)/(g*mol*A) -> (kj)/(g*A) -> 1e6*(m^2*g)/(g*A*s^2) -> 1e26*A/s^2 ->  1e-4(A/fs^2)
+	return energies, forces, accs, virial, lj_inters, ele_inters
 
-@jit(nopython=True)
+@jit(nopython=True,parallel=True)
 def update_velocities(N,vels,old_accs,accs,dt2):
-	for i in range(N):
-		for j in range(3):
+	for i in prange(N):
+		for j in prange(3):
 			vels[i][j] = vels[i][j]+(old_accs[i][j]+accs[i][j])*dt2
 	return vels
 
-@jit(nopython=True)
+@jit(nopython=True,parallel=True)
 def update_positions(N,box,poss,vels,accs,dt,dt3):
-	for i in range(N):
-		for j in range(3):
+	for i in prange(N):
+		for j in prange(3):
 			new_pos = poss[i][j]+vels[i][j]*dt+accs[i][j]*dt3
 			if new_pos > box[j]:
 				poss[i][j] = new_pos-box[j]
@@ -158,24 +159,33 @@ def backup(fname,counter):
 		counter+=1
 		return backup(fname,counter)
 
-def log(step,energies,vels,forces,masses,lj_inters,ele_inters,dt):
-	kB = 8.3145e-3
+def log(N,step,box,dim,energies,vels,forces,masses,virial,lj_inters,ele_inters,dt):
+	kB = 8.3145e-3 #kj/(mol K)
 	potential = np.sum(energies)
 	vel2 = np.einsum("ij, ij -> i", vels, vels)
 	vrms = np.sqrt(np.mean(vel2))
 	f_mean = np.mean(np.einsum("ij, ij -> i", forces, forces))
 	kin = 0.5*masses*vel2*1e4  # (g A^2)/(mol fs^2) -> 1e10(g*m^2)/(mol*s^2) -> 1e7(J)/(mol)  -> 1e4(kJ)/(mol)
+	total_kin = np.sum(kin)
 	temper = (2.0*np.mean(kin))/(3.0*kB)
+	tot_vir = np.sum(virial)/3.0
+	vol = box[0]**dim
+	press = (N*kB*temper+tot_vir)/vol  # kj/(mol A^3) -> 1000(N m)/(mol A^3) -> 1e33(N)/(mol m^2) -> 1.6661e9 N/m^2 -> 16443.13 atm
+	dens = np.sum(masses)/vol
 	print('#####################################')
 	print(f'Step: \t\t {step:>8d}')
 	print(f'Time: \t\t {(dt*step)/1000:>8.3f} ps') # convert fs to ps
-	print(f'Potential: \t {potential/2:>8.2f} kJ/mol') # double counting
-	print(f'Inters-LJ: \t {lj_inters//2:>8d}') # double counting
-	print(f'Inters-Coul: \t {ele_inters//2:>8d}') # double counting
-	print(f'Kinetic: \t {np.sum(kin):>8.3f} kJ/mol')
+	print(f'Potential: \t {potential:>8.2f} kJ/mol')
+	print(f'Inters-LJ: \t {lj_inters:>8d}') 
+	print(f'Inters-Coul: \t {ele_inters:>8d}') 
+	print(f'Kinetic: \t {total_kin:>8.2f} kJ/mol')
+	print(f'E_tot:  \t {total_kin+potential:>8.2f} kJ/mol')
 	print(f'V_rms: \t\t {vrms*100:>8.3f} nm/ps') # convert A/fs to nm/ps
 	print(f'F_mean: \t {f_mean:>8.3f} kJ/(mol A)')
 	print(f'Temperature: \t {temper:>8.3f} K')
+	print(f'Pressure: \t {press*16443.13:>8.3f} atm')
+	print(f'Lattice: \t {box[0]/10:>8.4f} nm') # convert A to nm
+	print(f'Density: \t {dens*1660.5:>8.3f} kg/m^3') # convert amu/A to kg/m^3
 
 def main():
 	mdp = tl.read_mdp(args.mdp)
@@ -194,8 +204,8 @@ def main():
 
 	print(mdp)
 
-	N, atoms, poss, vels, box,masses = read_box(args.pdb,T,ff)
-
+	N, dim, atoms, poss, vels, box,masses = read_box(args.pdb,T,ff)
+	print(f'The Number of atoms in the system is {N}')
 	print(f'Generated initial velocities for temperature {T}')
 
 	C6s, C12s, charges = generate_params(atoms,ff)
@@ -210,22 +220,22 @@ def main():
 		os.system(f"touch {out}")
 
 	# Compute initial forces and save initial coordinates with the stats
-	energies,forces,old_accs, lj_inters, ele_inters = compute_forces(poss,box,C6s,C12s,charges,masses,vdw_cut)
-	
+	energies, forces, old_accs, virial, lj_inters, ele_inters = compute_forces(poss,box,C6s,C12s,charges,masses,vdw_cut)
+
 	f_traj = open(out,'a')
 	tl.write_pdb(f_traj,box,atoms,poss,0)
-	log(0,energies,vels,forces,masses,lj_inters,ele_inters,dt)
+	log(N,0,box,dim,energies,vels,forces,masses,virial,lj_inters,ele_inters,dt)
 
 	# Main loop
 	t1 = time.time()
 	for step in range(1,nsteps+1):
 		new_pos = update_positions(N,box,poss,vels,old_accs,dt,dt3)
-		energies,forces,accs, lj_inters, ele_inters  = compute_forces(new_pos,box,C6s,C12s,charges,masses,vdw_cut)
+		energies, forces, accs, virial, lj_inters, ele_inters  = compute_forces(new_pos,box,C6s,C12s,charges,masses,vdw_cut)
 		vels = update_velocities(N,vels,old_accs,accs,dt2)
 		old_accs = accs
 		if step%save == 0:
 			tl.write_pdb(f_traj,box,atoms,new_pos,step)
-			log(step,energies,vels,forces,masses,lj_inters,ele_inters,dt)
+			log(N,step,box,dim,energies,vels,forces,masses,virial,lj_inters,ele_inters,dt)
 	f_traj.close()
 	delta = (time.time()-t1)/86400 # convert 
 	simulated_time = (nsteps*dt)*1e-6
