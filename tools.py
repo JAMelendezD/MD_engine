@@ -69,6 +69,30 @@ def read_itp(name:str) -> dict:
 				dic[data[1]] = (float(data[2]),float(data[3]),float(data[4]))
 	return dic
 
+
+def read_mdp(name:str) -> dict:
+	'''
+	Function to initialize the simulation options and to modify them based in the mdp file
+	'''
+	dic = {'nsteps'		:	0,
+			'dt'		:	1,
+			'T'			:	298.0,
+			'itp'		: 'noble.itp',
+			'vdw-cut'	:	9.0,
+			'ensemble'  :	1,
+			'save'		:	100,}
+
+	options = list(dic.keys())
+
+	with open(name,'r') as f:
+		for line in nonblank(f):
+			data = line.split()
+			if data[0] in options:
+				dic[data[0]] = type(dic[data[0]])(data[1].strip())
+			else:
+				print(f'Warning: option {data[0]} provided in the mdp is not implemented will be ignored')
+	return dic
+
 def splitm(line):
 	'''
 	Function to correctly split a line of a pdb file

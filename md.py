@@ -4,14 +4,18 @@ import tools as tl
 from scipy.interpolate import interp1d as interp
 from scipy.special import erf
 import os
+import argparse
 
 def generate_velocities(T,mass):
-	a = np.sqrt(KB*T/mass)
+	kB = 1.38e-23
+	amu = 1.660539*1e-27
+	mass = mass*amu
+	a = np.sqrt(kB*T/mass)
 	v = np.arange(0,25000,0.1)
 	cdf = erf(v/(np.sqrt(2)*a)) - np.sqrt(2/np.pi)* v* np.exp(-v**2/(2*a**2))/a
 	inv_cdf = interp(cdf,v) 
 	rand_num = np.random.random(1)
-	speed = inv_cdf(rand_num)
+	speed = inv_cdf(rand_num)*1e-5 # convert from m/s to A/fs
     
 	theta = np.arccos(np.random.uniform(-1,1,1))
 	phi = np.random.uniform(0,2*np.pi,1)
@@ -44,16 +48,7 @@ def read_box(pdb,T,ff):
 				box = np.array(data[1:4],dtype=float)
 	N = len(positions)
 	return N, atoms, np.array(positions,dtype=float), np.array(velocities,dtype=float), box, np.array(masses,dtype=float)
-
-@jit(nopython=True)
-def distance(atom1, atom2):
-	rvec = np.zeros(3)
-	rvec[0] = atom2[0] - atom1[0]
-	rvec[1] = atom2[1] - atom1[1]
-	rvec[2] = atom2[2] - atom1[2]
-	r = (rvec[0]*rvec[0]+rvec[1]*rvec[1]+rvec[2]*rvec[2])**0.5
-	return r, rvec
-
+	
 @jit(nopython=True)
 def lj(r,rvec,C6,C12):
 	sr6 = 1.0/r**6
@@ -64,8 +59,9 @@ def lj(r,rvec,C6,C12):
 	return pot,force
 
 @jit(nopython=True)
-def compute_force(poss,box,C6s,C12s,masses):
+def compute_forces(poss,box,C6s,C12s,masses,cutoff):
 	N = len(poss)
+	amu = 1.660539*1e-27
 	energies = np.zeros(N)
 	forces = np.zeros((N,3))
 	accs = np.zeros((N,3))
@@ -77,12 +73,13 @@ def compute_force(poss,box,C6s,C12s,masses):
 			if i != j:
 				rvec = vectors[j]
 				r = np.sqrt(np.dot(rvec,rvec))
-				e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
-				energy += e
-				force += f
+				if r <= cutoff:
+					e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
+					energy += e
+					force += f
 		energies[i] = energy
 		forces[i] = force
-		accs[i] = force/masses[i]
+		accs[i] = force/(masses[i]*1000)
 	return energies, forces, accs
 
 @jit(nopython=True)
@@ -128,63 +125,68 @@ def backup(fname,counter):
 		counter+=1
 		return backup(fname,counter)
 
-def log(step,energies,vels,forces):
+def log(step,energies,vels,forces,dt):
 	potential = np.sum(energies)/2
 	vrms = np.sqrt(np.mean(np.einsum("ij, ij -> i", vels, vels)))
 	f_mean = np.mean(np.einsum("ij, ij -> i", forces, forces))
 	print('#####################################')
-	print(f'{T:4.2f} K')
 	print(f'Step: \t\t {step:>8d}')
-	print(f'Time: \t\t {(DT*step)/1000:>8.3f} ps')
-	print(f'Potential: \t {potential:>8.3f} kJ/mol')
-	print(f'V_rms: \t\t {vrms:>8.3f} A/fs')
+	print(f'Time: \t\t {(dt*step)/1000:>8.3f} ps')
+	print(f'Potential: \t {potential:>8.2f} kJ/mol')
+	print(f'V_rms: \t\t {vrms*100:>8.3f} nm/ps') # convert A/fs to nm/ps
 	print(f'F_mean: \t {f_mean:>8.3f} kJ/(mol A)')
 
 def main():
-	ff = tl.read_itp(ITP)
-	N, atoms, poss, vels, box,masses = read_box(PDB,T,ff)
+	mdp = tl.read_mdp(args.f)
+	ff = tl.read_itp(mdp['itp'])
+
+	# Set simulation parameters
+	out ='traj.pdb'
+	dt = mdp['dt']
+	dt2 = 0.5*dt
+	dt3 = 0.5*dt**2
+	nsteps = mdp['nsteps']
+	save = mdp['save']
+	T = mdp['T']
+	vdw_cut = mdp['vdw-cut']
+	ensemble = mdp['ensemble']
+
+	print(mdp)
+
+	N, atoms, poss, vels, box,masses = read_box(args.c,T,ff)
 
 	print(f'Generated initial velocities for temperature {T}')
 
 	C6s, C12s = generate_lj_params(atoms,ff)
 
-	new_name = backup(OUT,0)
-	if OUT == new_name:
-		os.system(f"touch {OUT}")
+	# Create a backup if traj.pdb exists
+	new_name = backup(out,0)
+	if out == new_name:
+		os.system(f"touch {out}")
 	else:
 		print(f"Found a file with the same output name will back it up to {new_name}")
-		os.system(f"mv {OUT} '{new_name}'")
-		os.system(f"touch {OUT}")
+		os.system(f"mv {out} '{new_name}'")
+		os.system(f"touch {out}")
 
-	energies,forces,old_accs = compute_force(poss,box,C6s,C12s,masses)
+	# Compute initial forces and save initial coordinates with the stats
+	energies,forces,old_accs = compute_forces(poss,box,C6s,C12s,masses,vdw_cut)
+	tl.write_pdb(out,'a',box,atoms,poss,0)
+	log(0,energies,vels,forces,dt)
 
-	print(forces)
-
-	tl.write_pdb(OUT,'a',box,atoms,poss,0)
-	log(0,energies,vels,forces)
-
-	for step in range(1,NSTEPS+1):
-		new_pos = update_positions(N,box,poss,vels,old_accs,DT,DT3)
-		energies,forces,accs = compute_force(new_pos,box,C6s,C12s,masses)
-		vels = update_velocities(N,vels,old_accs,accs,DT2)
+	# Main loop
+	for step in range(1,nsteps+1):
+		new_pos = update_positions(N,box,poss,vels,old_accs,dt,dt3)
+		energies,forces,accs = compute_forces(new_pos,box,C6s,C12s,masses,vdw_cut)
+		vels = update_velocities(N,vels,old_accs,accs,dt2)
 		old_accs = accs
-		if step%SAVE == 0:
-			tl.write_pdb(OUT,'a',box,atoms,new_pos,step)
-			log(step,energies,vels,forces)
+		if step%save == 0:
+			tl.write_pdb(out,'a',box,atoms,new_pos,step)
+			log(step,energies,vels,forces,dt)
 
 if __name__ == '__main__':
 
-	AMU = 1.660539*1e-27
-	KB = 8.314462618*1e-3
-	PA = 9.86923*1e-6
-
-	OUT ='traj.pdb'
-	ITP = 'noble.itp'
-	DT = 1
-	DT2 = 0.5*DT
-	DT3 = 0.5*DT**2
-	NSTEPS = 0
-	T=298
-	SAVE = 1
-	PDB = 'ar_liq.pdb'
+	parser = argparse.ArgumentParser(description='Dynamics')
+	parser.add_argument('-f',required = True,type=str,help='mdp file')
+	parser.add_argument('-c',required=True, type=str,help='pdb file')
+	args = parser.parse_args()
 	main()

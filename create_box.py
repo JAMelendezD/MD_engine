@@ -42,12 +42,12 @@ def generate_coordinates(elements:dict,dim:int,box) -> None:
 	return names, positions
 
 def main():
-	elements = {'Ar': 512}
+	elements = {'Ar': 256,'Kr': 256}
 	dim = 3
 	box = np.array([28.98,28.98,28.98])
 	names, positions = generate_coordinates(elements,dim,box)
 
-	write_pdb('ar_liq.pdb','w',box,names,positions,0)
+	write_pdb('arkr_liq.pdb','w',box,names,positions,0)
 
 if __name__ == '__main__':
 	main()
