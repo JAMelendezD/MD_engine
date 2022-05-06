@@ -65,8 +65,8 @@ def read_mdp(name):
 	Function to initialize the simulation options and to modify them based in the mdp file
 	'''
 	dic = {'nsteps'		:	0,
-			'dt'		:	1,
-			'T'			:	298.0,
+			'dt'		:	1.0,
+			'T'			:	298.15,
 			'itp'		: 'noble.itp',
 			'vdw-cut'	:	9.0,
 			'ensemble'  :	1,

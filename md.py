@@ -82,6 +82,7 @@ def coulomb(r,rvec,q):
 	force = (k*q*sr3)*rvec
 	return pot,force
 
+'''
 @jit(nopython=True,fastmath=True,parallel=True)
 def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
 	N = len(poss)
@@ -91,27 +92,56 @@ def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
 	ele_inters = 0
 	virial = 0.0
 	for i in prange(N-1):
-		energy = 0 
-		vectors = np.remainder(poss[i] - poss + box[0]/2.0, box[0]) - box[0]/2.0
-		for j in prange(i+1,N):
+		vectors =  np.remainder(poss[i] - poss + box[0]/2.0, box[0]) - box[0]/2.0
+		for j in range(i+1,N):
 			rvec = vectors[j]
 			r = np.sqrt(np.dot(rvec,rvec))
 			if r <= cutoff:
 				e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
-				energy += e
+				energies[i] += e
 				forces[i] +=  f
-				forces[j] -=  f
+				forces[j] +=  -f
 				virial += np.dot(rvec,f)
 				lj_inters += 1
 				if charges[i][j] != 0.0:
 					e,f = coulomb(r,rvec,charges[i][j])
-					energy += e
+					energies += e
 					forces[i] += f
-					forces[j] -= f
+					forces[j] += -f
 					virial += np.dot(rvec,f)
 					ele_inters += 1
-		energies[i] = energy
 	accs = (forces.T/masses).T*1e-4 # (kj*mol)/(g*mol*A) -> (kj)/(g*A) -> 1e6*(m^2*g)/(g*A*s^2) -> 1e26*A/s^2 ->  1e-4(A/fs^2)
+	return energies, forces, accs, virial, lj_inters, ele_inters
+'''
+
+@jit(nopython=True,fastmath=True,parallel=True)
+def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
+	N = len(poss)
+	energies = np.zeros(N)
+	forces = np.zeros((N,3))
+	accs = np.zeros((N,3))
+	lj_inters = 0
+	ele_inters = 0
+	virial = 0.0
+	for i in prange(N): 
+		vectors = np.remainder(poss[i] - poss + box[0]/2.0, box[0]) - box[0]/2.0
+		for j in prange(N):
+			if i != j:
+				rvec = vectors[j]
+				r = np.sqrt(np.dot(rvec,rvec))
+				if r <= cutoff:
+					e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
+					energies[i] += e
+					forces[i] += f
+					virial += np.dot(rvec,f)
+					lj_inters += 1
+					if charges[i][j] != 0.0:
+						e,f = coulomb(r,rvec,charges[i][j])
+						energies[i] += e
+						forces[i] += f
+						virial += np.dot(rvec,f)
+						ele_inters += 1
+		accs[i] = (forces[i]/masses[i])*1e-4 # (kj*mol)/(g*mol*A) -> (kj)/(g*A) -> 1e6*(m^2*g)/(g*A*s^2) -> 1e26*A/s^2 ->  1e-4(A/fs^2)
 	return energies, forces, accs, virial, lj_inters, ele_inters
 
 @jit(nopython=True,parallel=True)
@@ -185,7 +215,7 @@ def log(N,step,box,dim,energies,vels,forces,masses,virial,lj_inters,ele_inters,d
 	print(f'Temperature: \t {temper:>8.3f} K')
 	print(f'Pressure: \t {press*16443.13:>8.3f} atm')
 	print(f'Lattice: \t {box[0]/10:>8.4f} nm') # convert A to nm
-	print(f'Density: \t {dens*1660.5:>8.3f} kg/m^3') # convert amu/A to kg/m^3
+	print(f'Density: \t {dens*1660.539:>8.3f} kg/m^3') # convert amu/A to kg/m^3
 
 def main():
 	mdp = tl.read_mdp(args.mdp)
