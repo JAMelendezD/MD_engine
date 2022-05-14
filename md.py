@@ -8,6 +8,9 @@ import time
 import argparse
 
 def generate_velocities(T,mass,dim):
+	if T == 0.0:
+		return [0.0, 0.0, 0.0]
+	
 	kB = 1.38e-23
 	amu = 1.660539*1e-27
 	mass = mass*amu
@@ -28,9 +31,9 @@ def generate_velocities(T,mass,dim):
 	if dim == 3:
 		return [vx[0], vy[0], vz[0]]
 	elif dim == 2:
-		return [vx[0], vy[0], 0]
+		return [vx[0], vy[0], 0.0]
 	else:
-		return [vx[0], 0, 0]
+		return [vx[0], 0.0, 0.0]
 
 def read_box(pdb,T,ff):
 	positions = []
@@ -64,24 +67,6 @@ def read_box(pdb,T,ff):
 	N = len(positions)
 	return N, dim, atoms, np.array(positions,dtype=float), np.array(velocities,dtype=float), box, np.array(masses,dtype=float)
 
-@jit(nopython=True,fastmath=True)
-def lj(r,rvec,C6,C12):
-	sr6 = 1.0/r**6
-	sr8 = 1.0/r**8
-	sr14 = 1.0/r**14
-	pot = C12*sr6*sr6-C6*sr6
-	force = (12*C12*sr14-6*C6*sr8)*rvec
-	return pot,force
-
-@jit(nopython=True,fastmath=True)
-def coulomb(r,rvec,q):
-	k = 1389.3546
-	sr = 1.0/r
-	sr3 = 1.0/r**3
-	pot = k*q*sr
-	force = (k*q*sr3)*rvec
-	return pot,force
-
 '''
 @jit(nopython=True,fastmath=True,parallel=True)
 def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
@@ -114,16 +99,38 @@ def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
 	return energies, forces, accs, virial, lj_inters, ele_inters
 '''
 
-@jit(nopython=True,fastmath=True,parallel=True)
+@jit(nopython=True)
+def lj(r,rvec,C6,C12):
+	sr6 = 1.0/r**6
+	sr8 = 1.0/r**8
+	sr14 = 1.0/r**14
+	pot = C12*sr6*sr6-C6*sr6
+	force = (12*C12*sr14-6*C6*sr8)*rvec
+	return pot,force
+
+@jit(nopython=True)
+def coulomb(r,rvec,q):
+	k = 1389.3546
+	sr = 1.0/r
+	sr3 = 1.0/r**3
+	pot = k*q*sr
+	force = (k*q*sr3)*rvec
+	return pot,force
+
+@jit(nopython=True,fastmath=True,parallel = True)
 def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
 	N = len(poss)
 	energies = np.zeros(N)
+	virial = np.zeros(N)
 	forces = np.zeros((N,3))
 	accs = np.zeros((N,3))
 	lj_inters = 0
 	ele_inters = 0
 	virial = 0.0
-	for i in prange(N): 
+	for i in prange(N):
+		energy = 0 
+		force = np.zeros(3)
+		mass = masses[i]
 		vectors = np.remainder(poss[i] - poss + box[0]/2.0, box[0]) - box[0]/2.0
 		for j in prange(N):
 			if i != j:
@@ -131,17 +138,19 @@ def compute_forces(poss,box,C6s,C12s,charges,masses,cutoff):
 				r = np.sqrt(np.dot(rvec,rvec))
 				if r <= cutoff:
 					e,f = lj(r,rvec,C6s[i][j],C12s[i][j])
-					energies[i] += e
-					forces[i] += f
+					energy += e
+					force += f
 					virial += np.dot(rvec,f)
-					lj_inters += 1
+					lj_inters+=1
 					if charges[i][j] != 0.0:
 						e,f = coulomb(r,rvec,charges[i][j])
-						energies[i] += e
-						forces[i] += f
+						energy += e
+						force += f
 						virial += np.dot(rvec,f)
-						ele_inters += 1
-		accs[i] = (forces[i]/masses[i])*1e-4 # (kj*mol)/(g*mol*A) -> (kj)/(g*A) -> 1e6*(m^2*g)/(g*A*s^2) -> 1e26*A/s^2 ->  1e-4(A/fs^2)
+						ele_inters+=1
+		energies[i] = energy
+		forces[i] = force
+		accs[i] = (force/mass)*1e-4 # (kj*mol)/(g*mol*A) -> (kj)/(g*A) -> 1e6*(m^2*g)/(g*A*s^2) -> 1e26*A/s^2 ->  1e-4(A/fs^2)
 	return energies, forces, accs, virial, lj_inters, ele_inters
 
 @jit(nopython=True,parallel=True)
@@ -198,9 +207,8 @@ def log(N,step,box,dim,energies,vels,forces,masses,virial,lj_inters,ele_inters,d
 	kin = 0.5*masses*vel2*1e4  # (g A^2)/(mol fs^2) -> 1e10(g*m^2)/(mol*s^2) -> 1e7(J)/(mol)  -> 1e4(kJ)/(mol)
 	total_kin = np.sum(kin)
 	temper = (2.0*np.mean(kin))/(3.0*kB)
-	tot_vir = np.sum(virial)/3.0
 	vol = box[0]**dim
-	press = (N*kB*temper+tot_vir)/vol  # kj/(mol A^3) -> 1000(N m)/(mol A^3) -> 1e33(N)/(mol m^2) -> 1.6661e9 N/m^2 -> 16443.13 atm
+	press = (N*kB*temper+virial/6)/vol  # kj/(mol A^3) -> 1000(N m)/(mol A^3) -> 1e33(N)/(mol m^2) -> 1.6661e9 N/m^2 -> 16443.13 atm
 	dens = np.sum(masses)/vol
 	print('#####################################')
 	print(f'Step: \t\t {step:>8d}')
