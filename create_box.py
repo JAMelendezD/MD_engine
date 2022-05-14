@@ -50,7 +50,7 @@ def generate_coordinates(elements,box,mode):
 
 def main():
 	mode = 0
-	elements = {'Ar':1000}
+	elements = {'Ar':512}
 	#box = np.array([28.98,28.98,28.98])
 	#box = np.array([40.98,40.98,40.98])
 	box = np.array([274.95,274.95,274.95])
