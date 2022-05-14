@@ -50,12 +50,12 @@ def generate_coordinates(elements,box,mode):
 
 def main():
 	mode = 0
-	elements = {'Ar':512}
-	#box = np.array([28.98,28.98,28.98])
+	elements = {'Ar':256,'He':256}
+	box = np.array([28.98,28.98,28.98])
 	#box = np.array([40.98,40.98,40.98])
-	box = np.array([274.95,274.95,274.95])
+	#box = np.array([274.95,274.95,274.95])
 	names, positions = generate_coordinates(elements,box,mode)
-	f = open('ar_gas.pdb','w')
+	f = open('test.pdb','w')
 	write_pdb(f,box,names,positions,0)
 	f.close()
 if __name__ == '__main__':

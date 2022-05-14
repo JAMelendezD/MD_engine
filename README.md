@@ -6,7 +6,14 @@ MD engine with Van der waals and Coulomb interactions. Parameters are obtained f
 python md.py ar_liq.pdb run.mdp
 ```
 
+## 2D He-Ar Gas
+
 <p align="center">
   <img width="1000" src="images/2d_lj.gif">
+</p>
+
+## 3D He-Ar Liquid
+
+<p align="center">
   <img width="1000" src="images/2d_lj.gif">
 </p>
