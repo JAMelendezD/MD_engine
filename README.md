@@ -7,6 +7,6 @@ python md.py ar_liq.pdb run.mdp
 ```
 
 <p align="center">
-  <img width="1000" src="images/2d_lj.gif.gif">
-  <img width="1000" src="images/2d_lj.gif.gif">
+  <img width="1000" src="images/2d_lj.gif">
+  <img width="1000" src="images/2d_lj.gif">
 </p>
