@@ -17,3 +17,9 @@ python md.py ar_liq.pdb run.mdp
 <p align="center">
   <img width="600" src="images/3d_lj.gif">
 </p>
+
+## 2D He-Xe NaCl Gas
+
+<p align="center">
+  <img width="1000" src="images/2d_salt.gif">
+</p>
