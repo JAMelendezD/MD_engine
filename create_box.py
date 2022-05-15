@@ -50,9 +50,9 @@ def generate_coordinates(elements,box,mode):
 
 def main():
 	mode = 0
-	elements = {'Ar':256,'He':256}
-	box = np.array([28.98,28.98,28.98])
-	#box = np.array([40.98,40.98,40.98])
+	elements = {'He':10,'Xe':10,'Na':40,'Cl':40}
+	#box = np.array([28.98,28.98,28.98])
+	box = np.array([120.98,120.98,0.0])
 	#box = np.array([274.95,274.95,274.95])
 	names, positions = generate_coordinates(elements,box,mode)
 	f = open('test.pdb','w')
