@@ -15,5 +15,5 @@ python md.py ar_liq.pdb run.mdp
 ## 3D He-Ar Liquid
 
 <p align="center">
-  <img width="1000" src="images/3d_lj.gif">
+  <img width="600" src="images/3d_lj.gif">
 </p>
