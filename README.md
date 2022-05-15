@@ -23,3 +23,9 @@ python md.py ar_liq.pdb run.mdp
 <p align="center">
   <img width="1000" src="images/2d_salt.gif">
 </p>
+
+## 3D MgCl Liquid
+
+<p align="center">
+  <img width="1000" src="images/3d_salt.gif">
+</p>
